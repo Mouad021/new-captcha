@@ -1,87 +1,74 @@
 export default {
   async fetch(request, env) {
-    // health check
+    // ====== CORS HEADERS ======
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    };
+
+    // ====== Preflight ======
+    if (request.method === "OPTIONS") {
+      return new Response("OK", {
+        status: 200,
+        headers: corsHeaders,
+      });
+    }
+
+    // ====== Only POST allowed ======
     if (request.method !== "POST") {
-      return new Response("Samurai Worker Online", { status: 200 });
+      return new Response("Method Not Allowed", {
+        status: 405,
+        headers: corsHeaders,
+      });
     }
 
-    // 1) قراءة الـ JSON من الإضافة
-    let body;
+    let payload;
     try {
-      body = await request.json();
-    } catch (err) {
-      return new Response(
-        JSON.stringify({
-          ok: false,
-          error: "Bad JSON from extension",
-          details: String(err),
-        }),
-        {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+      payload = await request.json();
+    } catch (e) {
+      return new Response(JSON.stringify({ ok: false, error: "Invalid JSON" }), {
+        status: 400,
+        headers: corsHeaders,
+      });
     }
 
-    const backend = env.SAMURAI_LOCAL_SERVER;
-    if (!backend) {
-      return new Response(
-        JSON.stringify({
-          ok: false,
-          error: "SAMURAI_LOCAL_SERVER not configured",
-        }),
-        {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+    const images = payload?.images || [];
+    const labels = payload?.labels || [];
+
+    if (!Array.isArray(images) || !Array.isArray(labels)) {
+      return new Response(JSON.stringify({
+        ok: false,
+        error: "Invalid images/labels"
+      }), {
+        status: 400,
+        headers: corsHeaders,
+      });
     }
 
+    // ===== Relay إلى السرفر المحلي =====
     try {
-      // 2) إرسال نفس البودي لسيرفر بايثون
-      const res = await fetch(backend, {
+      const r = await fetch(env.SAMURAI_LOCAL_SERVER + "/collect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body || {}),
+        body: JSON.stringify({ images, labels }),
       });
 
-      const text = await res.text();
+      const data = await r.json();
 
-      // 3) محاولة تحويل الرد لـ JSON
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch (err) {
-        return new Response(
-          JSON.stringify({
-            ok: false,
-            error: "Invalid JSON from local server",
-            raw: text.slice(0, 400),
-          }),
-          {
-            status: 500,
-            headers: { "Content-Type": "application/json" },
-          }
-        );
-      }
-
-      // 4) إعادة نفس JSON للإضافة
-      return new Response(JSON.stringify(data), {
-        status: res.status || 200,
-        headers: { "Content-Type": "application/json" },
+      return new Response(JSON.stringify({ ok: true, data }), {
+        status: 200,
+        headers: corsHeaders,
       });
-    } catch (err) {
-      return new Response(
-        JSON.stringify({
-          ok: false,
-          error: "Worker → local server failed",
-          details: String(err),
-        }),
-        {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+    } catch (e) {
+      return new Response(JSON.stringify({
+        ok: false,
+        error: "Worker → Local server failed",
+        detail: String(e),
+      }), {
+        status: 500,
+        headers: corsHeaders,
+      });
     }
-  },
+  }
 };
