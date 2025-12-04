@@ -1,71 +1,87 @@
-// worker.js — Samurai Cloud Trainer Proxy
-
 export default {
   async fetch(request, env) {
-    const url = new URL(request.url);
-
-    // فقط POST على /collect هي اللي غادي نتعامل معها
-    if (request.method !== "POST" || url.pathname !== "/collect") {
+    // health check
+    if (request.method !== "POST") {
       return new Response("Samurai Worker Online", { status: 200 });
     }
 
+    // 1) قراءة الـ JSON من الإضافة
     let body;
     try {
       body = await request.json();
     } catch (err) {
       return new Response(
-        JSON.stringify({ ok: false, error: "Invalid JSON from client" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
+        JSON.stringify({
+          ok: false,
+          error: "Bad JSON from extension",
+          details: String(err),
+        }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }
       );
     }
 
-    // هنا كنسمح بالـ payload ديال التدريب:
-    // images + labels (target اختياري)
-    if (!Array.isArray(body.images) || !Array.isArray(body.labels)) {
+    const backend = env.SAMURAI_LOCAL_SERVER;
+    if (!backend) {
       return new Response(
         JSON.stringify({
           ok: false,
-          error: "Missing images or labels array"
+          error: "SAMURAI_LOCAL_SERVER not configured",
         }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
+        {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }
       );
     }
 
-    // ⬅️ السرفر ديال بايثون (Render / VPS / ..) كيستقبل نفس JSON
-    const PY_BACKEND = env.SAMURAI_LOCAL_SERVER;
-
     try {
-      const backendRes = await fetch(PY_BACKEND, {
+      // 2) إرسال نفس البودي لسيرفر بايثون
+      const res = await fetch(backend, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body || {}),
       });
 
-      const text = await backendRes.text();
+      const text = await res.text();
+
+      // 3) محاولة تحويل الرد لـ JSON
       let data;
       try {
         data = JSON.parse(text);
-      } catch {
-        data = {
-          ok: false,
-          error: "Invalid JSON from python backend",
-          raw: text
-        };
+      } catch (err) {
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: "Invalid JSON from local server",
+            raw: text.slice(0, 400),
+          }),
+          {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
       }
 
+      // 4) إعادة نفس JSON للإضافة
       return new Response(JSON.stringify(data), {
-        status: backendRes.status,
-        headers: { "Content-Type": "application/json" }
+        status: res.status || 200,
+        headers: { "Content-Type": "application/json" },
       });
     } catch (err) {
       return new Response(
         JSON.stringify({
           ok: false,
-          error: "Worker → backend failed",
-          details: String(err)
+          error: "Worker → local server failed",
+          details: String(err),
         }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
+        {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }
       );
     }
-  }
+  },
 };
