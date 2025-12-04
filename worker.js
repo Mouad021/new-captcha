@@ -1,59 +1,71 @@
+// worker.js — Samurai Cloud Trainer Proxy
+
 export default {
   async fetch(request, env) {
-    if (request.method !== "POST") {
-      return new Response("Samurai Worker Online", {
-        status: 200
-      });
+    const url = new URL(request.url);
+
+    // فقط POST على /collect هي اللي غادي نتعامل معها
+    if (request.method !== "POST" || url.pathname !== "/collect") {
+      return new Response("Samurai Worker Online", { status: 200 });
     }
 
-    let body = null;
+    let body;
     try {
       body = await request.json();
     } catch (err) {
-      return new Response(JSON.stringify({
-        ok: false,
-        error: "Invalid JSON"
-      }), { status: 400 });
+      return new Response(
+        JSON.stringify({ ok: false, error: "Invalid JSON from client" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
     }
 
-    // تأكد من target والصور
-    if (!body.target || !Array.isArray(body.images)) {
-      return new Response(JSON.stringify({
-        ok: false,
-        error: "Missing target or images"
-      }), { status: 400 });
+    // هنا كنسمح بالـ payload ديال التدريب:
+    // images + labels (target اختياري)
+    if (!Array.isArray(body.images) || !Array.isArray(body.labels)) {
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: "Missing images or labels array"
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
     }
 
-    // رابط السرفر المحلي عبر Tunnel
-    const LOCAL_SERVER = env.SAMURAI_LOCAL_SERVER; 
-    // مثال:
-    // https://abc123.ngrok-free.app/solve
-    // أو
-    // https://your-tunnel-url.trycloudflare.com/solve
+    // ⬅️ السرفر ديال بايثون (Render / VPS / ..) كيستقبل نفس JSON
+    const PY_BACKEND = env.SAMURAI_LOCAL_SERVER;
 
     try {
-      const res = await fetch(LOCAL_SERVER, {
+      const backendRes = await fetch(PY_BACKEND, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body)
       });
 
-      const data = await res.json().catch(() => ({
-        ok: false,
-        error: "Invalid JSON returned from python"
-      }));
+      const text = await backendRes.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = {
+          ok: false,
+          error: "Invalid JSON from python backend",
+          raw: text
+        };
+      }
 
       return new Response(JSON.stringify(data), {
-        headers: { "Content-Type": "application/json" },
-        status: 200
+        status: backendRes.status,
+        headers: { "Content-Type": "application/json" }
       });
-
     } catch (err) {
-      return new Response(JSON.stringify({
-        ok: false,
-        error: "Worker → Local server failed",
-        details: err.toString()
-      }), { status: 500 });
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: "Worker → backend failed",
+          details: String(err)
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
     }
   }
 };
