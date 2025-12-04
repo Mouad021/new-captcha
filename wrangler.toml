@@ -1,15 +1,11 @@
-name = "samurai-captcha-worker"
+name = "samurai-worker"
 main = "worker.js"
-compatibility_date = "2024-01-01"
+compatibility_date = "2023-10-01"
 
-# أقل شيء خاص Cloudflare Worker باش يخدم
+# في التطوير تقدر تستعمل workers_dev = true
 workers_dev = true
 
-# الربط مع السرفر المحلي أو الخارجي
 [vars]
-PYTHON_SERVER = "http://127.0.0.1:5000/collect"
-
-# لو تستعمل KV (مستقبلاً)
-# [[kv_namespaces]]
-# binding = "SAMURAI_STORE"
-# id = ""
+# هنا كيتحدد عنوان السرفر الحقيقي اللي فيه Flask
+# في حالتك الآن محلي:
+SAMURAI_LOCAL_SERVER = "http://127.0.0.1:5000/collect"
