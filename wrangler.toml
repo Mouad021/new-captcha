@@ -1,0 +1,6 @@
+name = "samurai-worker"
+main = "worker.js"
+compatibility_date = "2023-10-01"
+
+[vars]
+SAMURAI_LOCAL_SERVER = "https://YOUR-TUNNEL-URL/solve"
